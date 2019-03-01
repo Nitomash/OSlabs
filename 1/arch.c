@@ -1,7 +1,7 @@
-#include<string.h>
-#include<stdio.h>
-#include<stdlib.h>
-#include<dirent.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -21,16 +21,17 @@ char *substr(char *src, int first, int num) //функция выделения 
 int main(int argc, char *argv[])
 {
 	if (argc == 1) { //хотя бы один аргумент должен быть
-		printf("No agruments\n");
+		printf("Usage for packing: -fi filename1 [filename2 ... filenameN] -fo foldername1 [foldername2 ... foldernameM] -fn archivename\n");
+		printf("Usage for unpacking: -o archivename\n");
 		return 1;
 	}
 	int fi = argc, fo = argc, fn = argc, o = argc; //индексы соответствущих ключей командной строки
 	int one = EOF - 1; //байт для записи размера папок
-	char **files, **folders, *filename = "archive.arc", chr; //массивы для чтения и записи файлов и папок и служебный символ
-	int right, *fl_num, fin, fon; //служебная переменная, массив размеров файлов и количество файлов и папок в архиве
+	char **files, **folders, *filename = "archive.arc", chr, *tmp; //массивы для чтения и записи файлов и папок и служебный символ
+	int right, *fl_num, fin, fon, i, j; //служебная переменная, массив размеров файлов и количество файлов и папок в архиве
 	FILE *file, *archive; //указатели на файлы для архива и сам архив
 	
-	for (int i = 1 ; i < argc ; ++i) { //поиск ключей командной строки
+	for (i = 1 ; i < argc ; ++i) { //поиск ключей командной строки
 		if (!strcmp(argv[i], "-fi"))
 			fi = i; //нашёл - отметил индекс
 		if (!strcmp(argv[i], "-fo"))
@@ -61,7 +62,7 @@ int main(int argc, char *argv[])
 			fin = right - fi - 1; //количество файлов
 			files = (char **)malloc(sizeof(char *) * fin); //выделение памяти массиву имён файлов и массиву размеров
 			fl_num = (int *)malloc(sizeof(int) * fin);
-			for (int i = fi + 1 ; i < right ; ++i) { //время проверять файлы на существование и записывать размер
+			for (i = fi + 1 ; i < right ; ++i) { //время проверять файлы на существование и записывать размер
 				file = fopen(argv[i], "r"); //попытка открыть очередной файл
 				if (file == NULL) { //не открылся
 					printf("No file: %s\n", argv[i]); //сообщаем; продолжаем
@@ -82,7 +83,7 @@ int main(int argc, char *argv[])
 				right = argc; //граница - конец списка аргументов
 			fon = right - fo - 1; //количество папок
 			folders = (char **)malloc(sizeof(char *) * fon); //выделение памяти под массив
-			for (int i = fo + 1 ; i < right ; ++i) { //проверяем папки на существование
+			for (i = fo + 1 ; i < right ; ++i) { //проверяем папки на существование
 				if (opendir(argv[i]) == NULL) { //не удалось открыть?
 					printf("No folder: %s\n", argv[i]); //сообщаем; продолжаем
 					continue;
@@ -92,30 +93,40 @@ int main(int argc, char *argv[])
 		}
 		if (fn < argc) { //если имя архива указано
 			filename = argv[fn + 1]; //запоминаем имя папки
-			if (strcmp(substr(filename, strlen(filename) - 4, -1), ".arc")) //если нету расширения - приписываем
+			tmp = substr(filename, strlen(filename) - 4, -1);
+			if (strcmp(tmp, ".arc")) //если нету расширения - приписываем
 				strcat(filename, ".arc");
+			free(tmp);
 		}
 		archive = fopen(filename, "wb"); //создаём файл архива для записи
 		if (archive == NULL) { //если не удалось создать
 			printf("Error creating archive\n");
+			free(files);
+			free(folders);
+			free(fl_num);
 			return 1; //ошибка
 		}
 		fwrite(&fin, sizeof(int), 1, archive); //записываем количество файлов и папок
 		fwrite(&fon, sizeof(int), 1, archive);
-		for (int i = 0 ; i < fin ; ++i) { //записываем имена и размеры файлов
+		for (i = 0 ; i < fin ; ++i) { //записываем имена и размеры файлов
 			fwrite(files[i], sizeof(char), strlen(files[i]) + 1, archive); //имя
 			fwrite((void *)&fl_num[i], sizeof(int), 1, archive); //размер
 		}
-		for (int i = 0 ; i < fon ; ++i) { //записываем имена папок
+		for (i = 0 ; i < fon ; ++i) { //записываем имена папок
 			fwrite(folders[i], sizeof(char), strlen(folders[i]) + 1, archive); //имя
 			fwrite((void *)&one, sizeof(int), 1, archive); //служебный символ вместо размера
 		}
 		int num = 256; //переменный размер буфера
 		char *buffer = (char *)malloc(sizeof(char) * num); //выделяем память на буфер, которым будем читать содержимое файлов
-		for (int i = 0 ; i < fin ; ++i) { //цикл чтения содержимого
+		for (i = 0 ; i < fin ; ++i) { //цикл чтения содержимого
 			file = fopen(files[i], "rb"); //попытка открыть очередной файл
 			if (file == NULL) { //не удалось?
 				printf("Error cannot open file \"%s\"\n", files[i]);
+				free(files);	
+				free(folders);
+				free(fl_num);
+				fclose(archive);
+				free(buffer);
 				return 1; //ошибка
 			}
 			while (fread(buffer, sizeof(char), num, file)) { //цикл считывания и записи
@@ -124,10 +135,14 @@ int main(int argc, char *argv[])
 			fclose(file); //закрываем файл, когда нечего читать
 		}
 		fclose(archive); //когда всё записано, закрываем архив
+		free(buffer);
 	} else { //режим распаковки архива
 		archive = fopen(argv[2], "r"); //пытаемся открыть архив
 		if (archive == NULL) { //не удалось?
 			printf("Error opening archive.\n");
+			free(files);	
+			free(folders);
+			free(fl_num);
 			return 1; //ошибка
 		}
 		fread(&fin, sizeof(int), 1, archive); //читаем количество файлов и папок
@@ -135,19 +150,21 @@ int main(int argc, char *argv[])
 		files = (char **)malloc(sizeof(char *) * fin); //выделяем память для массивов имён и размеров файлов (папки будем сразу создавать)
 		fl_num = (int *)malloc(sizeof(int) * fin);
 		char buff[255]; //буфер для чтения архива
-		for (int i = 0 ; i < fin ; ++i) { //основной цикл чтения архива
-			for (int j = 0 ; j < 255 ; ++j) { //цикл побайтового чтения имени файла
+		for (i = 0 ; i < fin ; ++i) { //основной цикл чтения архива
+			for (j = 0 ; j < 255 ; ++j) { //цикл побайтового чтения имени файла
 				fread(buff + j, sizeof(char), 1, archive);
 				if (buff[j] == '\0') //конец строки
 					break;
 			}
 			files[i] = (char *)malloc(sizeof(char) * (strlen(buff) + 1)); //выделение памяти для имени файла
-			strcpy(files[i], substr(buff, 0, strlen(buff) + 1)); //копирование имени
+			tmp = substr(buff, 0, strlen(buff) + 1);
+			strcpy(files[i], tmp); //копирование имени
+			free(tmp);
 			fread(&fl_num[i], sizeof(int), 1, archive); //чтение размера файла
 		}
 		struct stat st = {0}; //структура для проверки существования папки
-		for (int i = 0 ; i < fon ; ++i) { //цикл чтения списка папок
-			for (int j = 0 ; j < 255 ; ++j) { //цикл чтения имени папки
+		for (i = 0 ; i < fon ; ++i) { //цикл чтения списка папок
+			for (j = 0 ; j < 255 ; ++j) { //цикл чтения имени папки
 				fread(buff + j, sizeof(char), 1, archive); //побайтовое чтение
 				if (buff[j] == '\0') //конец строки
 					break;
@@ -155,15 +172,19 @@ int main(int argc, char *argv[])
 			fwrite(&one, sizeof(int), 1, archive); //чтение служебного символа ("размера")
 
 			if (stat(buff, &st) == -1) //папка не существует?
-			    mkdir(buff, 0700); //создадим
+				mkdir(buff, 0700); //создадим
 		}
-		for (int i = 0 ; i < fin ; ++i) { //цикл чтения содержимого файлов
+		for (i = 0 ; i < fin ; ++i) { //цикл чтения содержимого файлов
 			file = fopen(files[i], "w+"); //попытка создать файл
 			if (file == NULL) { //не удалось?
 				printf("Error opening file.\n");
+				free(files);	
+				free(folders);
+				free(fl_num);
+				fclose(archive);
 				return 1; //ошибка
 			}
-			for (int j = 0 ; j < fl_num[i] ; ++j) { //чтение и запись файла из архива побайтово
+			for (j = 0 ; j < fl_num[i] ; ++j) { //чтение и запись файла из архива побайтово
 				fread(&chr, 1, sizeof(char), archive);
 				fwrite(&chr, 1, sizeof(char), file);
 			}
@@ -171,5 +192,8 @@ int main(int argc, char *argv[])
 		}
 		fclose(archive); //после считывания закрываем архив
 	}
+	free(files);	
+	free(folders);
+	free(fl_num);
 	return 0;
 }
